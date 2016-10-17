@@ -1,0 +1,36 @@
+#!/bin/bash
+
+ROBOT_PATH=.
+PID_FILE=/var/run/redmine-robot.pid
+case "$1" in
+  start)
+    echo "Starting Robot"
+    # Start the daemon 
+    python $ROBOT_PATH/redmine-robot.py start
+    ;;
+  stop)
+    echo "Stopping Robot"
+    # Stop the daemon
+    python $ROBOT_PATH/redmine-robot.py stop
+    ;;
+  restart)
+    echo "Restarting Robot"
+    python $ROBOT_PATH/redmine-robot.py restart
+    ;;
+  status)
+    if [ -f $PID_FILE ];
+    then
+      pid=`cat $PID_FILE`
+      echo "Robot running!!! PID [$pid]"
+    else
+      echo "Robot stoped"
+    fi
+  ;;
+  *)
+    # Refuse to do other stuff
+    echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
+    ;;
+esac
+
+exit 0
