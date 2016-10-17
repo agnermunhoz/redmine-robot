@@ -257,7 +257,7 @@ class Redmine(object):
       if issue.schedule():
         self.scheduled_issues.append(issue)
   def execute(self):
-    self.scheduled_issues.sort(key=lambda issue: issue.dt_exec)
+    self.scheduled_issues.sort(key=lambda issue: (issue.dt_exec, issue.id))
     list(self.scheduled_issues)
     now = datetime.now()
     continue_exec = True
