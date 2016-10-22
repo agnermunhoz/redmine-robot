@@ -7,6 +7,7 @@ import requests
 import subprocess
 import sys
 from datetime import datetime
+from datetime import timedelta
 
 log_file = "/var/log/redmine-robot.log"
 
@@ -51,11 +52,11 @@ class Issue(object):
     self.id = issue_json["id"]
     self.tracker_id = issue_json["tracker"]["id"]
     self.status_id = issue_json["status"]["id"]
+    self.command = "echo 'Nothing to do!!!'"
     if "command" in tracker_json:
       self.command = tracker_json["command"]
       debug("Tracker command %s" % self.command)
     else:
-      self.command = "echo 'Nothing to do!!!'"
       if ("cf_cmd_id" in tracker_json) and ("custom_fields" in issue_json):
         for cf in issue_json["custom_fields"]:
           debug("CF %s" % json.dumps(cf))
@@ -66,6 +67,14 @@ class Issue(object):
         debug("CF command %s" % self.command)
       else:
         error("Command not found")
+    for cf in issue_json["custom_fields"]:
+      pattern = "%%%d" % cf["id"]
+      debug("Patter %s" % pattern)
+      value = cf["value"]
+      debug("Value %s" % value)
+      debug("Fill command parameters [pattern %s][value %s]" % (pattern, value))
+      self.command = self.command.replace(pattern, value)
+      
     inDate = issue_json["start_date"]
     inTime = ""         
     if ("cf_exec_time_id" in tracker_json) and ("custom_fields" in issue_json): 
@@ -76,15 +85,24 @@ class Issue(object):
           inTime = cf["value"]
           break
     if inTime == "":
-      inDatetime = "%s 00:00" % (inDate)
+      try:     
+        inDatetime = "%s 00:00" % (inDate)
+        self.dt_exec = datetime.strptime(inDatetime, "%Y-%m-%d %H:%M")
+        now = datetime.now()
+        if self.dt_exec.date() == now.date():
+          self.dt_exec = now
+        debug("Execute datetime %s" % inDatetime)
+      except:
+        self.dt_exec = datetime.now()
+        error("Datetime not valid")
     else:
-      inDatetime = "%s %s" % (inDate, inTime)
-    try:
-      self.dt_exec = datetime.strptime(inDatetime, "%Y-%m-%d %H:%M")
-      debug("Execute datetime %s" % inDatetime)
-    except:
-      self.dt_exec = datetime.now()
-      error("Datetime not valid")
+      try:
+        inDatetime = "%s %s" % (inDate, inTime)
+        self.dt_exec = datetime.strptime(inDatetime, "%Y-%m-%d %H:%M")
+        debug("Execute datetime %s" % inDatetime)
+      except:
+        self.dt_exec = datetime.now()
+        error("Datetime not valid")
   @staticmethod
   def CreateIssuesList(redmine, issues_json, tracker_json):
     issues = []
@@ -144,6 +162,30 @@ class Issue(object):
       else:
         result = False
         error("Failed to schedule issue #%d. Issue already scheduled." % self.id)
+      return result
+    except:
+      e = sys.exc_info()[0]
+      error(e)
+      return False
+  def cancel(self, message):
+    try:
+      if self.status_id != conf["statuses"]["canceled"]:
+        r = requests.put(self.getUrl(), \
+              headers={"Authorization": "Basic %s" % conf["user"]["auth"]}, \
+              json={ \
+                "issue": { \
+                  "status_id": conf["statuses"]["canceled"], \
+                  "notes": message \
+                  } \
+                })
+        result = r.status_code == 200
+        if result:
+          debug("Issue #%d canceled" % self.id)
+        else:
+          error("Failed to cancel issue #%d" % self.id)
+      else:
+        result = False
+        error("Failed to cancel issue #%d. Issue already canceled." % self.id)
       return result
     except:
       e = sys.exc_info()[0]
@@ -215,12 +257,15 @@ class Issue(object):
       error(e)
       return False
   def __str__(self):
-    return "Issue #%d scheduled to %s" % (self.id, self.dt_exec.strftime("%Y-%m-%d %H:%M:%S") )
+    return "Issue #%d scheduled to %s. Command %s" % (self.id, self.dt_exec.strftime("%Y-%m-%d %H:%M:%S"), self.command )
     
 class Redmine(object):
   def __init__(self):
     self.scheduled_issues = self.getIssues(conf["statuses"]["execution"])
     self.scheduled_issues.extend(self.getIssues(conf["statuses"]["scheduled"]))
+    self.timeLimit = conf["timeLimit"]
+    #if self.timeLimit > 0:
+      #self.timeLimit = self.timeLimit * (-1)
   def getUrl(self):
     return "%s://%s" % (conf["redmine"]["protocol"], conf["redmine"]["address"])
   def getIssues(self, status):
@@ -260,14 +305,22 @@ class Redmine(object):
     self.scheduled_issues.sort(key=lambda issue: (issue.dt_exec, issue.id))
     list(self.scheduled_issues)
     now = datetime.now()
+    limit = now - timedelta(minutes=self.timeLimit)
+    debug("Execute issues scheduled between %s to %s" % (now.strftime("%Y-%m-%d %H:%M:%S"), limit.strftime("%Y-%m-%d %H:%M:%S")))
     continue_exec = True
     while self.scheduled_issues and continue_exec:
       issue = self.scheduled_issues[0]
       continue_exec = issue.dt_exec <= now
       if continue_exec:
-        debug("Execute issue #%d" % issue.id)
-        if issue.execute():
-          self.scheduled_issues.pop(0)
+        discart = issue.dt_exec < limit
+        if discart:
+          debug("Cancel issue #%d doe to time limit" % issue.id)
+          if issue.cancel("Issue canceled doe to time limit"):
+            self.scheduled_issues.pop(0)
+        else:
+          debug("Execute issue #%d" % issue.id)
+          if issue.execute():
+            self.scheduled_issues.pop(0)
   def getReadyIssues(self):
     issues = self.getIssues(conf["statuses"]["ready"])
     for issue in issues:

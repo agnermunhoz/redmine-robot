@@ -6,18 +6,18 @@
   "user": {
     "id": 6852,
     "login": "robot",
-    "auth": "authhash"
+    "auth": "cmBiMHRQQHNz"
   },
   "projects": [
     {
       "id": 1,
-      "identifier": "myproject"
+      "identifier": "myprojet"
     }
   ],
   "trackers": [
     { 
       "id": 10,
-      "command": "su - user -c 'ls -la'",
+      "command": "echo '%13'",
       "cf_exec_time_id": 10
     },
     { 
@@ -39,5 +39,6 @@
     "completed": 7,
     "canceled": 8
   },
-  "loglevel": "DEBUG"
+  "loglevel": "DEBUG",
+  "timeLimit": 120
 }
